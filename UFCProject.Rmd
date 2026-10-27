@@ -1,0 +1,179 @@
+---
+title: "UFC Predictions"
+author: "Imran, Adi, Will, Brojananda, Aayush"
+date: "2026-10-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Initial Cleaning
+
+```{r}
+ufc_model <- read.csv("ufc-master.csv")
+
+# Deleting columns
+ufc_model$date <- NULL
+ufc_model$location <- NULL
+ufc_model$country <- NULL
+ufc_model$lose_streak_dif <- NULL
+ufc_model$win_streak_dif <- NULL
+ufc_model$longest_win_streak_dif <- NULL
+ufc_model$win_dif <- NULL
+ufc_model$loss_dif <- NULL
+ufc_model$total_round_dif <- NULL
+ufc_model$total_title_bout_dif <- NULL
+ufc_model$ko_dif <- NULL
+ufc_model$sub_dif <- NULL
+ufc_model$height_dif <- NULL
+ufc_model$reach_dif <- NULL
+ufc_model$age_dif <- NULL
+ufc_model$sig_str_dif <- NULL
+ufc_model$avg_sub_att_dif <- NULL
+ufc_model$avg_td_dif <- NULL
+ufc_model$empty_arena <- NULL
+ufc_model$R_Women.s.Featherweight_rank <- NULL
+ufc_model$B_Women.s.Featherweight_rank <- NULL
+ufc_model$finish_details <- NULL
+ufc_model$finish_round_time <- NULL
+ufc_model$total_fight_time_secs <- NULL
+
+# Factorizing Columns
+ufc_model$R_fighter <- as.factor(ufc_model$R_fighter)
+ufc_model$B_fighter <- as.factor(ufc_model$B_fighter)
+ufc_model$Winner <- as.factor(ufc_model$Winner)
+ufc_model$title_bout <- as.factor(ufc_model$title_bout)
+ufc_model$weight_class <- as.factor(ufc_model$weight_class)
+ufc_model$R_fighter <- as.factor(ufc_model$R_fighter)
+ufc_model$gender <- as.factor(ufc_model$gender)
+# maybe binary 4 above
+ufc_model$no_of_rounds <- as.factor(ufc_model$no_of_rounds)
+ufc_model$B_Stance <- as.factor(ufc_model$B_Stance)
+ufc_model$R_Stance <- as.factor(ufc_model$R_Stance)
+ufc_model$better_rank <- as.factor(ufc_model$better_rank)
+ufc_model$finish <- as.factor(ufc_model$finish)
+
+# Reconfiguring Ranked Columns
+ufc_model$B_match_weightclass_rank2 <- ifelse(is.na(ufc_model$B_match_weightclass_rank), 0, 1)
+ufc_model$B_match_weightclass_rank <- NULL
+ufc_model$R_match_weightclass_rank2 <- ifelse(is.na(ufc_model$R_match_weightclass_rank), 0, 1)
+ufc_model$R_match_weightclass_rank <- NULL
+
+ufc_model$R_Women.s.Flyweight_rank2 <- ifelse(is.na(ufc_model$R_Women.s.Flyweight_rank), 0, 1)
+ufc_model$R_Women.s.Flyweight_rank <- NULL
+ufc_model$B_Women.s.Flyweight_rank2 <- ifelse(is.na(ufc_model$B_Women.s.Flyweight_rank), 0, 1)
+ufc_model$B_Women.s.Flyweight_rank <- NULL
+
+ufc_model$R_Women.s.Strawweight_rank2 <- ifelse(is.na(ufc_model$R_Women.s.Strawweight_rank), 0, 1)
+ufc_model$R_Women.s.Strawweight_rank <- NULL
+ufc_model$B_Women.s.Strawweight_rank2 <- ifelse(is.na(ufc_model$B_Women.s.Strawweight_rank), 0, 1)
+ufc_model$B_Women.s.Strawweight_rank <- NULL
+
+ufc_model$R_Women.s.Bantamweight_rank2 <- ifelse(is.na(ufc_model$R_Women.s.Bantamweight_rank), 0, 1)
+ufc_model$R_Women.s.Bantamweight_rank <- NULL
+ufc_model$B_Women.s.Bantamweight_rank2 <- ifelse(is.na(ufc_model$B_Women.s.Bantamweight_rank), 0, 1)
+ufc_model$B_Women.s.Bantamweight_rank <- NULL
+
+ufc_model$R_Heavyweight_rank2 <- ifelse(is.na(ufc_model$R_Heavyweight_rank), 0, 1)
+ufc_model$R_Heavyweight_rank <- NULL
+ufc_model$B_Heavyweight_rank2 <- ifelse(is.na(ufc_model$B_Heavyweight_rank), 0, 1)
+ufc_model$B_Heavyweight_rank <- NULL
+
+ufc_model$R_Light.Heavyweight_rank2 <- ifelse(is.na(ufc_model$R_Light.Heavyweight_rank), 0, 1)
+ufc_model$R_Light.Heavyweight_rank <- NULL
+ufc_model$B_Light.Heavyweight_rank2 <- ifelse(is.na(ufc_model$B_Light.Heavyweight_rank), 0, 1)
+ufc_model$B_Light.Heavyweight_rank <- NULL
+
+ufc_model$R_Middleweight_rank2 <- ifelse(is.na(ufc_model$R_Middleweight_rank), 0, 1)
+ufc_model$R_Middleweight_rank <- NULL
+ufc_model$B_Middleweight_rank2 <- ifelse(is.na(ufc_model$B_Middleweight_rank), 0, 1)
+ufc_model$B_Middleweight_rank <- NULL
+
+ufc_model$R_Welterweight_rank2 <- ifelse(is.na(ufc_model$R_Welterweight_rank), 0, 1)
+ufc_model$R_Welterweight_rank <- NULL
+ufc_model$B_Welterweight_rank2 <- ifelse(is.na(ufc_model$B_Welterweight_rank), 0, 1)
+ufc_model$B_Welterweight_rank <- NULL
+
+ufc_model$R_Lightweight_rank2 <- ifelse(is.na(ufc_model$R_Lightweight_rank), 0, 1)
+ufc_model$R_Lightweight_rank <- NULL
+ufc_model$B_Lightweight_rank2 <- ifelse(is.na(ufc_model$B_Lightweight_rank), 0, 1)
+ufc_model$B_Lightweight_rank <- NULL
+
+ufc_model$R_Featherweight_rank2 <- ifelse(is.na(ufc_model$R_Featherweight_rank), 0, 1)
+ufc_model$R_Featherweight_rank <- NULL
+ufc_model$B_Featherweight_rank2 <- ifelse(is.na(ufc_model$B_Featherweight_rank), 0, 1)
+ufc_model$B_Featherweight_rank <- NULL
+
+ufc_model$R_Bantamweight_rank2 <- ifelse(is.na(ufc_model$R_Bantamweight_rank), 0, 1)
+ufc_model$R_Bantamweight_rank <- NULL
+ufc_model$B_Bantamweight_rank2 <- ifelse(is.na(ufc_model$B_Bantamweight_rank), 0, 1)
+ufc_model$B_Bantamweight_rank <- NULL
+
+ufc_model$R_Flyweight_rank2 <- ifelse(is.na(ufc_model$R_Flyweight_rank), 0, 1)
+ufc_model$R_Flyweight_rank <- NULL
+ufc_model$B_Flyweight_rank2 <- ifelse(is.na(ufc_model$B_Flyweight_rank), 0, 1)
+ufc_model$B_Flyweight_rank <- NULL
+
+ufc_model$R_Pound.for.Pound_rank2 <- ifelse(is.na(ufc_model$R_Pound.for.Pound_rank), 0, 1)
+ufc_model$R_Pound.for.Pound_rank <- NULL
+ufc_model$B_Pound.for.Pound_rank2 <- ifelse(is.na(ufc_model$B_Pound.for.Pound_rank), 0, 1)
+ufc_model$B_Pound.for.Pound_rank <- NULL
+
+str(ufc_model)
+```
+
+```{r}
+# Save cleaned dataset into an RDS:
+saveRDS(ufc_model, file = "cleaned_dataset.rds")
+cleaned_ufc <- readRDS("cleaned_dataset.rds") # Put this in other RMD files for modularity.
+```
+
+Splitting the data
+```{r}
+ratio <- 0.7
+set.seed(12345)
+train_rows <- sample(1:nrow(ufc_model), ratio * nrow(ufc_model))
+ufc_train <- ufc_model[train_rows, ]
+ufc_test  <- ufc_model[-train_rows, ]
+```
+
+
+# Regression Model
+```{r}
+glm_model <- glm(
+       Winner ~  R_age + B_age +
+    R_Height_cms + B_Height_cms +
+    R_Reach_cms + B_Reach_cms +
+    R_avg_SIG_STR_landed + B_avg_SIG_STR_landed +
+    R_avg_TD_landed + B_avg_TD_landed +
+    R_avg_SUB_ATT + B_avg_SUB_ATT +
+    R_wins + B_wins +
+    R_odds + B_odds +
+  r_dec_odds + b_dec_odds + 
+r_sub_odds + b_sub_odds  +
+r_ko_odds  + b_ko_odds  +
+  B_current_lose_streak + B_current_win_streak +
+R_current_lose_streak + R_current_win_streak +
+R_longest_win_streak + B_longest_win_streak,
+  data = ufc_train, family = binomial)
+
+summary(glm_model)
+```
+
+#Confusion Matrix
+```{r}
+library(caret)
+
+p_red <- predict(glm_model, ufc_test, type = "response")
+
+cls_reg <- factor(ifelse(p_red > 0.5, "Red", "Blue"), levels = levels(ufc_test$Winner))
+
+keep <- !is.na(p_red)
+
+confusionMatrix(cls_reg[keep], ufc_test$Winner[keep], positive = "Red")
+
+```
+
+Our business question is whether we can predict which fighter will win their next UFC fight using only information known before the fight starts. To answer it, we built a logistic regression that estimates the probability that the Red-corner fighter wins, using pre-fight information such as fighter age, takedown and submission averages, win streaks and the betting odds. On fights the model had never seen, it correctly predicts the winner in 68.05% of cases, compared with 57.8% for the baseline of always picking the Red corner. This improvement is statistically significant explained by P-Value [Acc > NIR] : 2.695e-16, so information available before a fight does carry real predictive signal about who will win. The model is still imperfect: Kappa is 0.3292 and balanced accuracy is 0.6805, so a meaningful share of fights remain hard to call. It also leans toward the Red corner, catching 0.7896 of Red wins but only 0.5326 of Blue wins, so it is better at confirming the favorite than at spotting upsets. Overall, the dataset is viable for the business question, since a fight’s winner can be predicted better than chance from pre-fight information. In Stage 3 we will test more variables and the other methods from class to improve on this result.
