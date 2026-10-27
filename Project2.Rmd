@@ -21,3 +21,9 @@ summary(cars)
 str(cars)
 ```
 
+shjcd
+<<<<<<< HEAD
+Oars
+chjvs
+=======
+>>>>>>> 3c321b9 (svc)
