@@ -1,0 +1,12 @@
+---
+title: "Project 2 Testing RMD File"
+author: "Yours Truly"
+date: "2026-10-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Pokemon is cool.
