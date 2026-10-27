@@ -13,7 +13,6 @@ Pokemon is cool.
 
 Pikachu is good
 
-
 myau
 
 ```{r}
