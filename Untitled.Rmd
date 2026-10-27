@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 #Hello world
 ```{r}
-56*3223=
+52*54
   
 ```
 
