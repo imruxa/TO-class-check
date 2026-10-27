@@ -16,3 +16,7 @@ Pikachu is good
 
 myau
 
+```{r}
+summary(cars)
+```
+
