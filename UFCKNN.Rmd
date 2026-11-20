@@ -21,42 +21,51 @@ This file is dedicated to making and evaluating a k nearest neighbors model to p
 ### Preparation
 
 ```{r}
-scaled_ufc_model <- readRDS("scaled_ufc_model.rds") # Read in dataset from MainUFCProject.Rmd (Main) file
+library(class)
+library(caret)
 
-# Split the dataset
-ratio <- 0.7
+ufc_model <- readRDS("ufc_model.rds")
+labels <- ufc_model$Winner
+
+predictors <- ufc_model[, !names(ufc_model) %in% c("Winner", "R_fighter", "B_fighter")]
+
+# Filter rows first, so predictors and labels stay aligned
+keep <- complete.cases(predictors) & labels %in% c("Red", "Blue")
+predictors <- droplevels(predictors[keep, ])
+labels <- droplevels(labels[keep])
+
+# No NAs remain, so every row survives the conversion
+x <- model.matrix(~ . - 1, data = predictors)
+
+minmax <- function(v) {
+  r <- range(v)
+  if (r[2] == r[1]) return(rep(0, length(v)))
+  (v - r[1]) / (r[2] - r[1])
+}
+x_scaled <- as.data.frame(apply(x, 2, minmax))
+
 set.seed(12345)
-train_rows <- sample(1:nrow(scaled_ufc_model), ratio * nrow(scaled_ufc_model))
-ufc_train_df <- scaled_ufc_model[train_rows, ]
-ufc_test_df  <- scaled_ufc_model[-train_rows, ]
+train_rows <- sample(1:nrow(x_scaled), 0.7 * nrow(x_scaled))
+
+train_x <- x_scaled[train_rows, ]
+test_x  <- x_scaled[-train_rows, ]
+train_y <- labels[train_rows]
+test_y  <- labels[-train_rows]
 ```
 
-## Make KNN Model
+### Make Model
 
 ```{r}
-library(class)
-
-knn_predict_winner <- knn(train = ufc_train_df[, -10], # Exclude Column 10, which is $Winner
-                       test  = ufc_test_df[, -10],
-                       cl    = ufc_train_df[, 10], # Column 10 is the dependent variable
-                       k     = 11,
-                       prob  = TRUE)
+knn_predict_winner <- knn(train = train_x, test = test_x, cl = train_y,
+                          k = 11, prob = TRUE)
+knn_prob_winner <- attr(knn_predict_winner, "prob")
 knn_predict_winner
 ```
 
-Through trial and error, k is the number of nearest neighbors for which kappa is still positive while accuracy and sensitivity is relatively high (at least compared to other values of k).
-
-## Evaluate KNN Model
+### Evaluate Model
 
 ```{r}
 library(caret)
-confusionMatrix(as.factor(ufc_predict_winner), as.factor(ufc_test_df$Winner), positive = "1")
-saveRDS(knn_predict_winner, "knn_predict_winner.rds")
-```
-
-Kappa for the KNN model is 0.18, which is a little better at making predictions compared to chance. Sensitivity is just over 2/3, and accuracy is only 61%. Specificity is just above 1/2. Overall, this is nowhere near a satisfactory model, but it is a relatively well-rounded one for both general predicting and for prioritizing predicting positives accurately.
-
-```{r}
-saveRDS(knn_prob_winner, "knn_prob_einner.rds") # Save prediction vector for Main file
+confusionMatrix(factor(knn_predict_winner, levels = c("Red", "Blue")), factor(test_y, levels = c("Red", "Blue")), positive = "Red")
 ```
 
