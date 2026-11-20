@@ -1,0 +1,52 @@
+---
+title: "UFCSVM"
+output: html_document
+---
+
+## SVM Model
+```{r}
+library(neuralnet)
+library(caret)
+library(ggplot2)
+library(pROC)
+library(knitr)
+
+# Read dataset
+ufc_model <- readRDS("ufc_model.rds")
+
+# Keep only the columns we need and remove NAs
+ufc_clean <- na.omit(ufc_model[, c("Winner", "R_age", "B_age", "R_Height_cms", "B_Height_cms","R_Reach_cms", "B_Reach_cms", "R_avg_SIG_STR_landed", "B_avg_SIG_STR_landed", "R_avg_TD_landed", "B_avg_TD_landed", "R_avg_SUB_ATT", "B_avg_SUB_ATT", "R_wins", "B_wins", "R_odds", "B_odds", "r_dec_odds", "b_dec_odds", "r_sub_odds", "b_sub_odds", "r_ko_odds", "b_ko_odds", "B_current_lose_streak", "B_current_win_streak", "R_current_lose_streak", "R_current_win_streak", "R_longest_win_streak", "B_longest_win_streak")])
+
+# Normalize predictors (0 to 1)
+normalize <- function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+
+ufc_norm <- as.data.frame(lapply(ufc_clean[, -1], normalize))
+ufc_norm$Winner <- ifelse(ufc_clean$Winner == "Red", 1, 0)
+
+# Split the dataset
+ratio <- 0.7
+set.seed(12345)
+train_rows <- sample(1:nrow(ufc_norm), ratio * nrow(ufc_norm))
+ufc_train <- ufc_norm[train_rows, ]
+ufc_test  <- ufc_norm[-train_rows, ]
+```
+
+
+```{r}
+#ufc_test <- as.factor(ufc_test)
+#ufc_train <- as.factor(ufc_train)
+
+library(kernlab)
+svm.model <- ksvm(Winner ~ ., data = ufc_train, kernel = "vanilladot")
+```
+
+
+```{r}
+svm.pred <- predict(svm.model, ufc_test)
+
+library(caret)
+#confusionMatrix(svm.pred, ufc_test$Winner, positive = "1")
+```
+```
