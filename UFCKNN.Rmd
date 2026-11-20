@@ -1,0 +1,62 @@
+---
+title: "UFC Predictions"
+output:
+  html_document:
+    theme: united
+    toc: true
+    toc_float: true
+date: "2026-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# UFC Fight Predictions
+
+## KNN Model
+
+This file is dedicated to making and evaluating a k nearest neighbors model to predict UFC fights.
+
+### Preparation
+
+```{r}
+scaled_ufc_model <- readRDS("scaled_ufc_model.rds") # Read in dataset from MainUFCProject.Rmd (Main) file
+
+# Split the dataset
+ratio <- 0.7
+set.seed(12345)
+train_rows <- sample(1:nrow(scaled_ufc_model), ratio * nrow(scaled_ufc_model))
+ufc_train_df <- scaled_ufc_model[train_rows, ]
+ufc_test_df  <- scaled_ufc_model[-train_rows, ]
+```
+
+## Make KNN Model
+
+```{r}
+library(class)
+
+knn_predict_winner <- knn(train = ufc_train_df[, -10], # Exclude Column 10, which is $Winner
+                       test  = ufc_test_df[, -10],
+                       cl    = ufc_train_df[, 10], # Column 10 is the dependent variable
+                       k     = 11,
+                       prob  = TRUE)
+knn_predict_winner
+```
+
+Through trial and error, k is the number of nearest neighbors for which kappa is still positive while accuracy and sensitivity is relatively high (at least compared to other values of k).
+
+## Evaluate KNN Model
+
+```{r}
+library(caret)
+confusionMatrix(as.factor(ufc_predict_winner), as.factor(ufc_test_df$Winner), positive = "1")
+saveRDS(knn_predict_winner, "knn_predict_winner.rds")
+```
+
+Kappa for the KNN model is 0.18, which is a little better at making predictions compared to chance. Sensitivity is just over 2/3, and accuracy is only 61%. Specificity is just above 1/2. Overall, this is nowhere near a satisfactory model, but it is a relatively well-rounded one for both general predicting and for prioritizing predicting positives accurately.
+
+```{r}
+saveRDS(knn_prob_winner, "knn_prob_einner.rds") # Save prediction vector for Main file
+```
+

@@ -2,12 +2,18 @@
 title: "UFC Predictions"
 author: "Imran, Adi, Will, Brojananda, Aayush"
 date: "2026-10-25"
-output: html_document
+output:
+  html_document:
+    theme: united
+    toc: true
+    toc_float: true
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+
+# UFC Fight Predictions
 
 ## Initial Cleaning
 
@@ -121,59 +127,27 @@ ufc_model$R_Pound.for.Pound_rank <- NULL
 ufc_model$B_Pound.for.Pound_rank2 <- ifelse(is.na(ufc_model$B_Pound.for.Pound_rank), 0, 1)
 ufc_model$B_Pound.for.Pound_rank <- NULL
 
+# View the newly cleaned dataset
 str(ufc_model)
+summary(ufc_model)
+
+# Need to equalize scales of numeric variables so that they have equivalent impact on distance in distance-based models like KNN, SVM, and ANN
+ufc_model_df <- as.data.frame(model.matrix(~ . -1, data = ufc_model))
+
+minmax <- function(x){
+  (x - min(x)) / (max(x) - min(x))
+}
+
+scaled_ufc_model <- as.data.frame(lapply(ufc_model_df, minmax)) # We now have a data frame with equally scaled variables
 ```
 
 ```{r}
-# Save cleaned dataset into an RDS:
-saveRDS(ufc_model, file = "cleaned_dataset.rds")
-cleaned_ufc <- readRDS("cleaned_dataset.rds") # Put this in other RMD files for modularity.
-```
-
-Splitting the data
-```{r}
-ratio <- 0.7
-set.seed(12345)
-train_rows <- sample(1:nrow(ufc_model), ratio * nrow(ufc_model))
-ufc_train <- ufc_model[train_rows, ]
-ufc_test  <- ufc_model[-train_rows, ]
+# Save cleaned data as RDS to use in sub-files
+saveRDS(ufc_model, file = "ufc_model.rds")
+saveRDS(scaled_ufc_model, file = "scaled_ufc_model.rds")
 ```
 
 
-# Regression Model
-```{r}
-glm_model <- glm(
-       Winner ~  R_age + B_age +
-    R_Height_cms + B_Height_cms +
-    R_Reach_cms + B_Reach_cms +
-    R_avg_SIG_STR_landed + B_avg_SIG_STR_landed +
-    R_avg_TD_landed + B_avg_TD_landed +
-    R_avg_SUB_ATT + B_avg_SUB_ATT +
-    R_wins + B_wins +
-    R_odds + B_odds +
-  r_dec_odds + b_dec_odds + 
-r_sub_odds + b_sub_odds  +
-r_ko_odds  + b_ko_odds  +
-  B_current_lose_streak + B_current_win_streak +
-R_current_lose_streak + R_current_win_streak +
-R_longest_win_streak + B_longest_win_streak,
-  data = ufc_train, family = binomial)
 
-summary(glm_model)
-```
-
-#Confusion Matrix
-```{r}
-library(caret)
-
-p_red <- predict(glm_model, ufc_test, type = "response")
-
-cls_reg <- factor(ifelse(p_red > 0.5, "Red", "Blue"), levels = levels(ufc_test$Winner))
-
-keep <- !is.na(p_red)
-
-confusionMatrix(cls_reg[keep], ufc_test$Winner[keep], positive = "Red")
-
-```
 
 Our business question is whether we can predict which fighter will win their next UFC fight using only information known before the fight starts. To answer it, we built a logistic regression that estimates the probability that the Red-corner fighter wins, using pre-fight information such as fighter age, takedown and submission averages, win streaks and the betting odds. On fights the model had never seen, it correctly predicts the winner in 68.05% of cases, compared with 57.8% for the baseline of always picking the Red corner. This improvement is statistically significant explained by P-Value [Acc > NIR] : 2.695e-16, so information available before a fight does carry real predictive signal about who will win. The model is still imperfect: Kappa is 0.3292 and balanced accuracy is 0.6805, so a meaningful share of fights remain hard to call. It also leans toward the Red corner, catching 0.7896 of Red wins but only 0.5326 of Blue wins, so it is better at confirming the favorite than at spotting upsets. Overall, the dataset is viable for the business question, since a fight’s winner can be predicted better than chance from pre-fight information. In Stage 3 we will test more variables and the other methods from class to improve on this result.
