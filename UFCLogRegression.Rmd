@@ -1,0 +1,68 @@
+---
+title: "UFC Predictions"
+output:
+  html_document:
+    theme: united
+    toc: true
+    toc_float: true
+date: "2026-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# UFC Fight Predictions
+
+## Logistic Regression Model
+
+This file is dedicated to making and evaluating a logistic regression model to predict the winners of UFC fights.
+
+### Preparation
+
+```{r}
+ufc_model <- readRDS("ufc_model.rds") # Read in dataset from MainUFCProject.Rmd (Main) file
+
+# Split the dataset
+ratio <- 0.7
+set.seed(12345)
+train_rows <- sample(1:nrow(ufc_model), ratio * nrow(ufc_model))
+ufc_train <- ufc_model[train_rows, ]
+ufc_test  <- ufc_model[-train_rows, ]
+```
+
+
+### Make Model
+```{r}
+glm_model <- glm(
+    Winner ~ R_age + B_age +
+             R_Height_cms + B_Height_cms +
+             R_Reach_cms + B_Reach_cms +
+             R_avg_SIG_STR_landed + B_avg_SIG_STR_landed +
+             R_avg_TD_landed + B_avg_TD_landed +
+             R_avg_SUB_ATT + B_avg_SUB_ATT +
+             R_wins + B_wins +
+             R_odds + B_odds +
+             r_dec_odds + b_dec_odds + 
+             r_sub_odds + b_sub_odds  +
+             r_ko_odds  + b_ko_odds  +
+             B_current_lose_streak + B_current_win_streak +
+             R_current_lose_streak + R_current_win_streak +
+             R_longest_win_streak + B_longest_win_streak,
+             data = ufc_train, family = binomial)
+summary(glm_model)
+```
+
+### Evaluate Model
+```{r}
+library(caret)
+
+p_red <- predict(glm_model, ufc_test, type = "response")
+
+cls_reg <- factor(ifelse(p_red > 0.5, "Red", "Blue"), levels = levels(ufc_test$Winner))
+
+keep <- !is.na(p_red)
+
+confusionMatrix(cls_reg[keep], ufc_test$Winner[keep], positive = "Red")
+
+```
