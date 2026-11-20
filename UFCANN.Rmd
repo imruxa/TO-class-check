@@ -1,0 +1,141 @@
+---
+title: "UFCANN"
+author: "Will Friedman"
+date: "2026-11-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+## Set-up
+
+```{r}
+library(neuralnet)
+library(caret)
+library(ggplot2)
+library(pROC)
+library(knitr)
+
+# Read dataset
+ufc_model <- readRDS("ufc_model.rds")
+
+# Keep only the columns we need and remove NAs
+ufc_clean <- na.omit(ufc_model[, c("Winner", "R_age", "B_age", "R_Height_cms", "B_Height_cms","R_Reach_cms", "B_Reach_cms", "R_avg_SIG_STR_landed", "B_avg_SIG_STR_landed", "R_avg_TD_landed", "B_avg_TD_landed", "R_avg_SUB_ATT", "B_avg_SUB_ATT", "R_wins", "B_wins", "R_odds", "B_odds", "r_dec_odds", "b_dec_odds", "r_sub_odds", "b_sub_odds", "r_ko_odds", "b_ko_odds", "B_current_lose_streak", "B_current_win_streak", "R_current_lose_streak", "R_current_win_streak", "R_longest_win_streak", "B_longest_win_streak")])
+
+# Normalize predictors (0 to 1)
+normalize <- function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+
+ufc_norm <- as.data.frame(lapply(ufc_clean[, -1], normalize))
+ufc_norm$Winner <- ifelse(ufc_clean$Winner == "Red", 1, 0)
+
+# Split the dataset
+ratio <- 0.7
+set.seed(12345)
+train_rows <- sample(1:nrow(ufc_norm), ratio * nrow(ufc_norm))
+ufc_train <- ufc_norm[train_rows, ]
+ufc_test  <- ufc_norm[-train_rows, ]
+```
+
+## Make Baseline Model
+
+```{r}
+ann_base <- neuralnet(
+    Winner ~ ., 
+    data = ufc_train, 
+    hidden = 2,
+    threshold = 0.05,
+    linear.output = FALSE,
+    stepmax = 1e5
+)
+
+# Plot network architecture
+plot(ann_base, rep = "best")
+```
+
+## Evaluate Baseline Model
+
+```{r}
+# Generate predictions
+p_base <- compute(ann_base, ufc_test[, -ncol(ufc_test)])$net.result
+cls_base <- factor(ifelse(p_base > 0.5, "Red", "Blue"), levels = c("Blue", "Red"))
+actual   <- factor(ifelse(ufc_test$Winner == 1, "Red", "Blue"), levels = c("Blue", "Red"))
+
+cm_base  <- confusionMatrix(cls_base, actual, positive = "Red")
+roc_base <- roc(ufc_test$Winner, as.vector(p_base), quiet = TRUE)
+
+# Confusion Matrix Heatmap
+cm_base_df <- as.data.frame(cm_base$table)
+ggplot(cm_base_df, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 6, fontface = "bold", color = "white") +
+  scale_fill_gradient(low = "skyblue", high = "black") +
+  labs(title = "Baseline ANN Confusion Matrix",
+       x = "Actual Winner",
+       y = "Predicted Winner") +
+  theme_minimal()
+```
+
+## Improved Model
+
+```{r}
+ann_imp <- neuralnet(
+    Winner ~ ., 
+    data = ufc_train, 
+    hidden = 5,
+    threshold = 0.05,
+    linear.output = FALSE,
+    stepmax = 1e5
+)
+
+plot(ann_imp, rep = "best")
+```
+
+## Improved Model Evaluation
+
+```{r}
+# Generate predictions using the best repetition
+p_imp   <- compute(ann_imp, ufc_test[, -ncol(ufc_test)], rep = which.min(ann_imp$result.matrix["error", ]))$net.result
+roc_imp <- roc(ufc_test$Winner, as.vector(p_imp), quiet = TRUE)
+
+# Find optimal probability threshold from ROC curve
+best_thresh <- coords(roc_imp, "best", ret = "threshold")$threshold[1]
+cls_imp     <- factor(ifelse(p_imp > best_thresh, "Red", "Blue"), levels = c("Blue", "Red"))
+
+cm_imp <- confusionMatrix(cls_imp, actual, positive = "Red")
+
+# Confusion Matrix Heatmap (Improved)
+cm_imp_df <- as.data.frame(cm_imp$table)
+ggplot(cm_imp_df, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 6, fontface = "bold", color = "white") +
+  scale_fill_gradient(low = "lightgreen", high = "darkgreen") +
+  labs(title = paste0("Improved ANN Confusion Matrix (Cutoff = ", round(best_thresh, 3), ")"),
+       x = "Actual Winner",
+       y = "Predicted Winner") +
+  theme_minimal()
+```
+
+## Model Comparison
+
+```{r}
+summary_table <- data.frame(
+  Model = c("Baseline ANN (1 Layer: 2 Nodes)", 
+            "Tuned ANN (1 Layer: 5 Nodes, Optimal Cutoff)"),
+  Accuracy = c(round(cm_base$overall["Accuracy"], 4), 
+               round(cm_imp$overall["Accuracy"], 4)),
+  Sensitivity = c(round(cm_base$byClass["Sensitivity"], 4), 
+                  round(cm_imp$byClass["Sensitivity"], 4)),
+  Specificity = c(round(cm_base$byClass["Specificity"], 4), 
+                  round(cm_imp$byClass["Specificity"], 4)),
+  AUC = c(round(auc(roc_base), 4), 
+          round(auc(roc_imp), 4))
+)
+
+kable(summary_table, align = "lcccc", caption = "Test Set Performance Comparison")
+```
+
+
