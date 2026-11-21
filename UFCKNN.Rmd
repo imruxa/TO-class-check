@@ -34,7 +34,6 @@ keep <- complete.cases(predictors) & labels %in% c("Red", "Blue")
 predictors <- droplevels(predictors[keep, ])
 labels <- droplevels(labels[keep])
 
-# No NAs remain, so every row survives the conversion
 x <- model.matrix(~ . - 1, data = predictors)
 
 minmax <- function(v) {

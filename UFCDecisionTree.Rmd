@@ -1,0 +1,300 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(caret)
+library(pROC)
+library(ggplot2)
+library(rpart)        # decision trees
+# install.packages("rpart.plot") if you don't have it (used for the nicer tree plot)
+set.seed(12345)
+```
+
+# 1. Business Question
+
+**Can we predict which fighter will win their next UFC fight using only information known before the fight starts?**
+
+Who benefits: matchmakers, sportsbooks and bettors, fighter representation (contract leverage, opponent selection), and media.
+Success metric: out-of-sample accuracy and AUC compared with two baselines: (1) always predict the majority corner, and (2) always pick the betting favorite.
+
+# 2. Data Loading and Cleaning
+
+```{r load}
+ufc <- read.csv("ufc-master.csv")
+dim(ufc)
+```
+
+```{r clean-columns}
+# ---- Deleting columns ----
+# NOTE: "date" is no longer dropped here. We need it to split 2025 (train) from 2026 (predict).
+drop_cols <- c("location", "country", "lose_streak_dif", "win_streak_dif",
+               "longest_win_streak_dif", "win_dif", "loss_dif", "total_round_dif",
+               "total_title_bout_dif", "ko_dif", "sub_dif", "height_dif", "reach_dif",
+               "age_dif", "sig_str_dif", "avg_sub_att_dif", "avg_td_dif", "empty_arena",
+               "R_Women.s.Featherweight_rank", "B_Women.s.Featherweight_rank",
+               "finish_details", "finish_round_time", "total_fight_time_secs")
+ufc[intersect(drop_cols, names(ufc))] <- NULL
+
+# ---- Parse the fight date (handles both "2025-03-15" and "3/15/2025") ----
+parse_fight_date <- function(x) {
+  x <- as.character(x)
+  d <- as.Date(x, format = "%Y-%m-%d")
+  d[is.na(d)] <- as.Date(x[is.na(d)], format = "%m/%d/%Y")
+  d
+}
+ufc$date <- parse_fight_date(ufc$date)
+ufc$year <- as.integer(format(ufc$date, "%Y"))
+
+# ---- Factorizing columns ----
+factor_cols <- c("R_fighter", "B_fighter", "Winner", "title_bout", "weight_class",
+                 "gender", "no_of_rounds", "B_Stance", "R_Stance", "better_rank", "finish")
+ufc[factor_cols] <- lapply(ufc[factor_cols], as.factor)
+
+# ---- Reconfiguring ranked columns: NA = unranked (0), otherwise ranked (1) ----
+rank_cols <- grep("_rank$", names(ufc), value = TRUE)
+for (col in rank_cols) {
+  ufc[[paste0(col, "2")]] <- ifelse(is.na(ufc[[col]]), 0, 1)
+  ufc[[col]] <- NULL
+}
+
+str(ufc)
+```
+
+```{r clean-more}
+# Keep a copy of EVERY fight before filtering. 2026 fights that haven't
+# happened yet have no Winner, and we still want to predict them in Section 6.
+ufc_all <- ufc
+
+# Keep only fights with a clean Red/Blue target
+table(ufc$Winner)
+ufc <- ufc[ufc$Winner %in% c("Red", "Blue"), ]
+ufc$Winner <- droplevels(ufc$Winner)
+
+# Missing values summary
+na_counts <- colSums(is.na(ufc))
+na_counts[na_counts > 0]
+```
+
+```{r impute}
+# Stance: treat blank/NA as its own category
+for (s in c("B_Stance", "R_Stance")) {
+  ufc[[s]] <- as.character(ufc[[s]])
+  ufc[[s]][is.na(ufc[[s]]) | ufc[[s]] == ""] <- "Unknown"
+  ufc[[s]] <- as.factor(ufc[[s]])
+}
+
+# Numeric columns: median imputation
+num_cols <- names(ufc)[sapply(ufc, is.numeric)]
+for (col in num_cols) {
+  ufc[[col]][is.na(ufc[[col]])] <- median(ufc[[col]], na.rm = TRUE)
+}
+sum(is.na(ufc))
+```
+
+# 3. Exploration
+
+```{r eda}
+# Target balance
+prop.table(table(ufc$Winner))
+
+ggplot(ufc, aes(Winner, fill = Winner)) +
+  geom_bar() +
+  scale_fill_manual(values = c(Blue = "steelblue", Red = "firebrick")) +
+  labs(title = "Fight Winners by Corner")
+
+# Win share by weight class
+ggplot(ufc, aes(weight_class, fill = Winner)) +
+  geom_bar(position = "fill") + coord_flip() +
+  scale_fill_manual(values = c(Blue = "steelblue", Red = "firebrick")) +
+  labs(y = "Share of wins", title = "Win Share by Weight Class")
+
+# Betting odds gap vs outcome (odds are known before the fight)
+ggplot(ufc, aes(Winner, R_odds - B_odds)) + geom_boxplot() +
+  coord_cartesian(ylim = c(-1500, 1500)) + labs(title = "Odds gap (Red - Blue) by winner")
+
+# Age gap by winner
+ggplot(ufc, aes(Winner, R_age - B_age)) + geom_boxplot() +
+  labs(title = "Age gap (Red - Blue) by winner")
+```
+
+# 4. Preparing the Modeling Data
+
+Columns describing what happened during or after the fight (`finish`, `finish_round`) can't be used to predict it, so they are removed. Fighter names are also dropped, and so are `date` and `year` (they are only used to split the data, not as predictors).
+
+```{r model-data}
+leak_cols <- c("finish", "finish_round", "R_fighter", "B_fighter", "date", "year")
+ufc_model <- ufc[, !(names(ufc) %in% leak_cols)]
+
+# Drop near-zero-variance columns
+nzv <- nearZeroVar(ufc_model, names = TRUE)
+nzv
+ufc_model <- ufc_model[, !(names(ufc_model) %in% nzv)]
+dim(ufc_model)
+```
+
+```{r split}
+# Stratified 70/30 train/test split
+idx   <- createDataPartition(ufc_model$Winner, p = 0.7, list = FALSE)
+train <- ufc_model[idx, ]
+test  <- ufc_model[-idx, ]
+
+# Baselines
+majority      <- names(which.max(table(train$Winner)))
+base_majority <- mean(test$Winner == majority)
+fav           <- ifelse(test$R_odds < test$B_odds, "Red", "Blue")  # lower odds = favorite
+base_favorite <- mean(fav == test$Winner)
+c(majority = base_majority, favorite = base_favorite)
+```
+
+# 5. One Quick Regression Model
+
+A simple logistic regression to show the dataset has predictive signal.
+
+```{r quick-logit}
+quick <- glm(Winner ~ R_odds + B_odds + R_age + B_age + R_Height_cms + B_Height_cms +
+               R_Reach_cms + B_Reach_cms + R_wins + B_wins + R_losses + B_losses,
+             data = train, family = binomial)
+summary(quick)
+
+# glm models P(second factor level) = P(Red), since levels are Blue, Red
+p_quick   <- predict(quick, test, type = "response")
+cls_quick <- factor(ifelse(p_quick > 0.5, "Red", "Blue"), levels = levels(test$Winner))
+
+confusionMatrix(cls_quick, test$Winner, positive = "Red")
+auc(roc(test$Winner, p_quick, levels = c("Blue", "Red")))
+```
+
+**Interpretation (fill in after knitting):** which coefficients are significant, how much accuracy beats the two baselines, and what that says about whether the dataset is viable for the business question.
+
+# 6. Two-Level Decision Tree: Train on 2025, Predict 2026
+
+The tree is trained only on 2025 fights and then applied to 2026 fights. This is a true "past predicts future" test: the model never sees any 2026 data. `maxdepth = 2` limits the tree to two levels of splits (at most four end leaves), so every rule it learns is easy to read and explain.
+
+To avoid leaking information from the future, missing values in both years are filled with **2025 medians only**. The predictors are the same columns used in Section 4 (`ufc_model`).
+
+```{r tree-data}
+table(ufc_all$year, useNA = "ifany")   # how many fights per year are in the file
+
+predictors <- setdiff(names(ufc_model), "Winner")
+id_cols    <- c("date", "R_fighter", "B_fighter")
+
+# ---- 2025: training set (completed fights only) ----
+train25 <- ufc_all[ufc_all$year %in% 2025 & ufc_all$Winner %in% c("Red", "Blue"),
+                   c(id_cols, predictors, "Winner")]
+train25$Winner <- factor(as.character(train25$Winner), levels = c("Blue", "Red"))
+
+# ---- 2026: every fight, including ones without a result yet ----
+fights26 <- ufc_all[ufc_all$year %in% 2026, c(id_cols, predictors, "Winner")]
+fights26$Winner <- as.character(fights26$Winner)
+fights26$Winner[is.na(fights26$Winner) | !(fights26$Winner %in% c("Red", "Blue"))] <- NA
+
+if (nrow(train25) == 0) stop("No completed 2025 fights found. Check the date column / dataset version.")
+if (nrow(fights26) == 0) stop("No 2026 fights found in the file.")
+c(train_2025 = nrow(train25), fights_2026 = nrow(fights26),
+  fights_2026_with_result = sum(!is.na(fights26$Winner)))
+
+# ---- Same cleaning as Section 2, but using 2025 values only ----
+fix_stance <- function(d) {
+  for (s in intersect(c("B_Stance", "R_Stance"), names(d))) {
+    d[[s]] <- as.character(d[[s]])
+    d[[s]][is.na(d[[s]]) | d[[s]] == ""] <- "Unknown"
+  }
+  d
+}
+train25  <- fix_stance(train25)
+fights26 <- fix_stance(fights26)
+
+num_pred <- predictors[sapply(train25[predictors], is.numeric)]
+for (col in num_pred) {
+  med <- median(train25[[col]], na.rm = TRUE)
+  train25[[col]][is.na(train25[[col]])]   <- med
+  fights26[[col]][is.na(fights26[[col]])] <- med
+}
+
+# Factor predictors: 2026 uses the 2025 levels (a category never seen in 2025 becomes NA,
+# which rpart handles with surrogate splits)
+fac_pred <- setdiff(predictors, num_pred)
+for (col in fac_pred) {
+  train25[[col]]  <- factor(as.character(train25[[col]]))
+  fights26[[col]] <- factor(as.character(fights26[[col]]), levels = levels(train25[[col]]))
+}
+```
+
+```{r tree-fit}
+tree_formula <- as.formula(paste("Winner ~", paste(predictors, collapse = " + ")))
+
+tree_ufc <- rpart(tree_formula,
+               data    = train25,
+               method  = "class",
+               control = rpart.control(maxdepth = 2,    # two levels of splits
+                                       cp       = 0,    # let it grow fully to depth 2
+                                       minbucket = 20,  # each leaf needs >= 20 fights
+                                       xval     = 10))  # 10-fold CV error, reported below
+
+tree_ufc
+printcp(tree_ufc)                 # xerror = 10-fold cross-validated error on 2025
+tree_ufc$variable.importance      # which variables the tree relied on
+
+if (requireNamespace("rpart.plot", quietly = TRUE)) {
+  rpart.plot::rpart.plot(tree_ufc, type = 2, extra = 104, under = TRUE,
+                         box.palette = c("steelblue", "firebrick"),
+                         main = "Two-Level Decision Tree (trained on 2025 fights)")
+} else {
+  plot(tree2, margin = 0.1); text(tree_ufc, use.n = TRUE, cex = 0.8)
+}
+
+# In-sample (2025) accuracy, for reference only
+mean(predict(tree_ufc, train25, type = "class") == train25$Winner)
+```
+
+```{r tree-predict-2026}
+# Predict every 2026 fight
+fights26$P_Red          <- predict(tree_ufc, fights26, type = "prob")[, "Red"]
+fights26$Pred_Winner    <- as.character(predict(tree_ufc, fights26, type = "class"))
+fights26$Pred_Fighter   <- ifelse(fights26$Pred_Winner == "Red",
+                                  as.character(fights26$R_fighter),
+                                  as.character(fights26$B_fighter))
+fights26$Favorite       <- ifelse(fights26$R_odds < fights26$B_odds, "Red", "Blue")
+
+pred_table <- fights26[order(fights26$date),
+                       c("date", "R_fighter", "B_fighter", "R_odds", "B_odds",
+                         "Pred_Winner", "Pred_Fighter", "P_Red", "Winner")]
+pred_table$P_Red <- round(pred_table$P_Red, 3)
+names(pred_table)[names(pred_table) == "Winner"] <- "Actual_Winner"
+pred_table
+
+write.csv(pred_table, "ufc_2026_tree_predictions.csv", row.names = FALSE)
+```
+
+```{r tree-evaluate-2026}
+# Score the 2026 fights that already have a result
+done26 <- fights26[!is.na(fights26$Winner), ]
+done26$Winner      <- factor(done26$Winner, levels = c("Blue", "Red"))
+done26$Pred_Winner <- factor(done26$Pred_Winner, levels = c("Blue", "Red"))
+
+if (nrow(done26) > 0) {
+  print(confusionMatrix(done26$Pred_Winner, done26$Winner, positive = "Red"))
+
+  # AUC needs both outcomes present and more than one distinct predicted probability
+  # (a 2-level tree has at most 4 distinct probabilities, so AUC will be coarse)
+  if (length(unique(done26$Winner)) == 2 && length(unique(done26$P_Red)) > 1) {
+    print(auc(roc(done26$Winner, done26$P_Red, levels = c("Blue", "Red"))))
+  }
+
+  # Compare with the two baselines, using the 2025 majority corner
+  maj25 <- names(which.max(table(train25$Winner)))
+  data.frame(
+    model    = c("Decision tree (depth 2)", paste0("Always ", maj25, " (2025 majority)"),
+                 "Always the betting favorite"),
+    accuracy = c(mean(done26$Pred_Winner == done26$Winner),
+                 mean(done26$Winner == maj25),
+                 mean(done26$Favorite == done26$Winner, na.rm = TRUE))
+  )
+} else {
+  cat("None of the 2026 fights in the file have a result yet - predictions only.\n")
+}
+```
+
+**Interpretation (fill in after knitting):** For our Decision Tree, we decided to go with a two-level decision tree, trained only on 2025 fights, shows that pre-fight information can predict UFC winners, and that the betting market carries most of that signal. We wanted the decision tree to predict winners based on 2025 data for 2026 fights. The tree’s first and most important split was the Red fighter’s betting odds. When Red was the favorite or an even pick (59% of 2025 fights), Red won 71% of the time. When Red was the underdog (41% of fights), Blue won 67% of the time. The only other variable the tree used was the Red fighter’s career significant-strike accuracy, and only for Red underdogs. Underdogs landing less than 51% of their significant strikes lost 74% of the time. Underdogs landing 51% or more won 55% of the time, which is close to a coin flip, so the tree’s confidence in that group is low. 
+
+Tested on 115 fights from early 2026 that it had never seen, the tree reached 70.4% accuracy and an AUC of 0.744. That’s well above the 55.7% from always picking the Red corner, but below the 74.8% accuracy and 0.827 AUC from simply picking the betting favorite. The odds rules held up: the tree was 75–76% accurate on fights decided by them. The striking-accuracy rule did not. The 13 accurate-striking Red underdogs won only 4 times (31%), so their 55% win rate in 2025 was most likely noise rather than a lasting edge, and something that we should solely focus on when choosing which fighter might have an edge. For bettors, these pre-fight statistics did not add value beyond what the betting odds already reflect. For matchmakers and fighter representatives, the odds are the best single summary of who is likely to win, but the 25% of fights where the favorite loses are where better data could still help.
+
+This analysis has a few limitations. The model learned from only one year of fights, and the 2026 test covers just two months. The tree has only two levels, and its only non-odds rule covered a small share of fights. A few odds entries also look wrong (for example, both fighters listed as favorites), so cleaning the odds data would help. Next steps are to train on several seasons, use features that measure the gap between the two fighters (Red minus Blue) instead of Red’s stats alone, try deeper trees tuned with cross-validation, and compare against the logistic regression in Section 5. Together these would show whether fighter statistics can consistently beat the betting market, which is the core of the business question.

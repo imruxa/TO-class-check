@@ -355,16 +355,13 @@ display: none;
 
 <div id="svm-model" class="section level2">
 <h2>SVM Model</h2>
-<pre class="r"><code>library(neuralnet)</code></pre>
-<pre><code>## Warning: package &#39;neuralnet&#39; was built under R version 4.5.3</code></pre>
-<pre class="r"><code>library(caret)</code></pre>
-<pre><code>## Warning: package &#39;caret&#39; was built under R version 4.5.3</code></pre>
+<pre class="r"><code>library(neuralnet)
+library(caret)</code></pre>
 <pre><code>## Loading required package: ggplot2</code></pre>
-<pre><code>## Warning: package &#39;ggplot2&#39; was built under R version 4.5.3</code></pre>
+<pre><code>## Warning: package &#39;ggplot2&#39; was built under R version 4.4.3</code></pre>
 <pre><code>## Loading required package: lattice</code></pre>
 <pre class="r"><code>library(ggplot2)
 library(pROC)</code></pre>
-<pre><code>## Warning: package &#39;pROC&#39; was built under R version 4.5.3</code></pre>
 <pre><code>## Type &#39;citation(&quot;pROC&quot;)&#39; for a citation.</code></pre>
 <pre><code>## 
 ## Attaching package: &#39;pROC&#39;</code></pre>
@@ -404,6 +401,18 @@ library(kernlab)</code></pre>
 ##     alpha</code></pre>
 <pre class="r"><code>svm.model &lt;- ksvm(Winner ~ ., data = ufc_train, kernel = &quot;vanilladot&quot;)</code></pre>
 <pre><code>##  Setting default kernel parameters</code></pre>
+<pre class="r"><code>svm.model</code></pre>
+<pre><code>## Support Vector Machine object of class &quot;ksvm&quot; 
+## 
+## SV type: eps-svr  (regression) 
+##  parameter : epsilon = 0.1  cost C = 1 
+## 
+## Linear (vanilla) kernel function. 
+## 
+## Number of Support Vectors : 3132 
+## 
+## Objective Function Value : -2438.846 
+## Training error : 0.980046</code></pre>
 <pre class="r"><code>svm.pred &lt;- predict(svm.model, ufc_test)
 
 library(caret)
