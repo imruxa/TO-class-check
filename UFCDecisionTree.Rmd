@@ -1,3 +1,13 @@
+---
+title: "UFC Predictions"
+output:
+  html_document:
+    theme: united
+    toc: true
+    toc_float: true
+date: "2026-11-20"
+---
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 library(caret)

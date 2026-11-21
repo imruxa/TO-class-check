@@ -353,71 +353,107 @@ display: none;
 </div>
 
 
+<div id="ufc-fight-predictions" class="section level1">
+<h1>UFC Fight Predictions</h1>
 <div id="svm-model" class="section level2">
 <h2>SVM Model</h2>
-<pre class="r"><code>library(neuralnet)
+<div id="preparation" class="section level3">
+<h3>Preparation</h3>
+<pre class="r"><code>library(kernlab)
 library(caret)</code></pre>
 <pre><code>## Loading required package: ggplot2</code></pre>
 <pre><code>## Warning: package &#39;ggplot2&#39; was built under R version 4.4.3</code></pre>
-<pre><code>## Loading required package: lattice</code></pre>
-<pre class="r"><code>library(ggplot2)
-library(pROC)</code></pre>
-<pre><code>## Type &#39;citation(&quot;pROC&quot;)&#39; for a citation.</code></pre>
 <pre><code>## 
-## Attaching package: &#39;pROC&#39;</code></pre>
-<pre><code>## The following objects are masked from &#39;package:stats&#39;:
+## Attaching package: &#39;ggplot2&#39;</code></pre>
+<pre><code>## The following object is masked from &#39;package:kernlab&#39;:
 ## 
-##     cov, smooth, var</code></pre>
-<pre class="r"><code>library(knitr)
+##     alpha</code></pre>
+<pre><code>## Loading required package: lattice</code></pre>
+<pre class="r"><code>ufc_model &lt;- readRDS(&quot;ufc_model.rds&quot;)
+labels &lt;- ufc_model$Winner
+predictors &lt;- ufc_model[, !names(ufc_model) %in% c(&quot;Winner&quot;, &quot;R_fighter&quot;, &quot;B_fighter&quot;)]
 
-# Read dataset
-ufc_model &lt;- readRDS(&quot;ufc_model.rds&quot;)
+# Same filtering as the KNN file, so both models use the same fights
+keep &lt;- complete.cases(predictors) &amp; labels %in% c(&quot;Red&quot;, &quot;Blue&quot;)
+predictors &lt;- droplevels(predictors[keep, ])
+labels &lt;- droplevels(labels[keep])
 
-# Keep only the columns we need and remove NAs
-ufc_clean &lt;- na.omit(ufc_model[, c(&quot;Winner&quot;, &quot;R_age&quot;, &quot;B_age&quot;, &quot;R_Height_cms&quot;, &quot;B_Height_cms&quot;,&quot;R_Reach_cms&quot;, &quot;B_Reach_cms&quot;, &quot;R_avg_SIG_STR_landed&quot;, &quot;B_avg_SIG_STR_landed&quot;, &quot;R_avg_TD_landed&quot;, &quot;B_avg_TD_landed&quot;, &quot;R_avg_SUB_ATT&quot;, &quot;B_avg_SUB_ATT&quot;, &quot;R_wins&quot;, &quot;B_wins&quot;, &quot;R_odds&quot;, &quot;B_odds&quot;, &quot;r_dec_odds&quot;, &quot;b_dec_odds&quot;, &quot;r_sub_odds&quot;, &quot;b_sub_odds&quot;, &quot;r_ko_odds&quot;, &quot;b_ko_odds&quot;, &quot;B_current_lose_streak&quot;, &quot;B_current_win_streak&quot;, &quot;R_current_lose_streak&quot;, &quot;R_current_win_streak&quot;, &quot;R_longest_win_streak&quot;, &quot;B_longest_win_streak&quot;)])
+x &lt;- model.matrix(~ . - 1, data = predictors)
 
-# Normalize predictors (0 to 1)
-normalize &lt;- function(x) {
-  return((x - min(x)) / (max(x) - min(x)))
+minmax &lt;- function(v) {
+  r &lt;- range(v)
+  if (r[2] == r[1]) return(rep(0, length(v)))
+  (v - r[1]) / (r[2] - r[1])
 }
+x_scaled &lt;- as.data.frame(apply(x, 2, minmax))
 
-ufc_norm &lt;- as.data.frame(lapply(ufc_clean[, -1], normalize))
-ufc_norm$Winner &lt;- ifelse(ufc_clean$Winner == &quot;Red&quot;, 1, 0)
+# Add the outcome back as a factor
+svm_data &lt;- data.frame(x_scaled, Winner = labels)
 
-# Split the dataset
-ratio &lt;- 0.7
+# Same split as the KNN file
 set.seed(12345)
-train_rows &lt;- sample(1:nrow(ufc_norm), ratio * nrow(ufc_norm))
-ufc_train &lt;- ufc_norm[train_rows, ]
-ufc_test  &lt;- ufc_norm[-train_rows, ]</code></pre>
+train_rows &lt;- sample(1:nrow(svm_data), 0.7 * nrow(svm_data))
+ufc_train &lt;- svm_data[train_rows, ]
+ufc_test  &lt;- svm_data[-train_rows, ]</code></pre>
+</div>
+<div id="build-model" class="section level3">
+<h3>Build Model</h3>
 <pre class="r"><code>#ufc_test &lt;- as.factor(ufc_test)
 #ufc_train &lt;- as.factor(ufc_train)
 
-library(kernlab)</code></pre>
-<pre><code>## 
-## Attaching package: &#39;kernlab&#39;</code></pre>
-<pre><code>## The following object is masked from &#39;package:ggplot2&#39;:
-## 
-##     alpha</code></pre>
-<pre class="r"><code>svm.model &lt;- ksvm(Winner ~ ., data = ufc_train, kernel = &quot;vanilladot&quot;)</code></pre>
+library(kernlab)
+svm.model &lt;- ksvm(Winner ~ ., data = ufc_train, kernel = &quot;vanilladot&quot;)</code></pre>
 <pre><code>##  Setting default kernel parameters</code></pre>
 <pre class="r"><code>svm.model</code></pre>
 <pre><code>## Support Vector Machine object of class &quot;ksvm&quot; 
 ## 
-## SV type: eps-svr  (regression) 
-##  parameter : epsilon = 0.1  cost C = 1 
+## SV type: C-svc  (classification) 
+##  parameter : cost C = 1 
 ## 
 ## Linear (vanilla) kernel function. 
 ## 
-## Number of Support Vectors : 3132 
+## Number of Support Vectors : 2179 
 ## 
-## Objective Function Value : -2438.846 
-## Training error : 0.980046</code></pre>
-<pre class="r"><code>svm.pred &lt;- predict(svm.model, ufc_test)
-
-library(caret)
-#confusionMatrix(svm.pred, ufc_test$Winner, positive = &quot;1&quot;)</code></pre>
-<p>```</p>
+## Objective Function Value : -2120.53 
+## Training error : 0.324195</code></pre>
+<pre class="r"><code># Predict using only predictor columns
+svm.pred &lt;- predict(svm.model, ufc_test[, names(ufc_test) != &quot;Winner&quot;])</code></pre>
+</div>
+<div id="evaluate-model" class="section level3">
+<h3>Evaluate Model</h3>
+<pre class="r"><code>all_levels &lt;- c(&quot;Red&quot;, &quot;Blue&quot;)
+confusionMatrix(factor(svm.pred, levels = all_levels),
+                factor(ufc_test$Winner, levels = all_levels),
+                positive = &quot;Red&quot;)</code></pre>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction Red Blue
+##       Red  590  287
+##       Blue 191  277
+##                                           
+##                Accuracy : 0.6446          
+##                  95% CI : (0.6184, 0.6702)
+##     No Information Rate : 0.5807          
+##     P-Value [Acc &gt; NIR] : 9.518e-07       
+##                                           
+##                   Kappa : 0.2525          
+##                                           
+##  Mcnemar&#39;s Test P-Value : 1.391e-05       
+##                                           
+##             Sensitivity : 0.7554          
+##             Specificity : 0.4911          
+##          Pos Pred Value : 0.6727          
+##          Neg Pred Value : 0.5919          
+##              Prevalence : 0.5807          
+##          Detection Rate : 0.4387          
+##    Detection Prevalence : 0.6520          
+##       Balanced Accuracy : 0.6233          
+##                                           
+##        &#39;Positive&#39; Class : Red             
+## </code></pre>
+</div>
+</div>
 </div>
 
 

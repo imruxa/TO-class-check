@@ -1,0 +1,70 @@
+---
+title: "UFC Predictions"
+output:
+  html_document:
+    theme: united
+    toc: true
+    toc_float: true
+date: "2026-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# UFC Fight Predictions
+
+## Random Forest Model
+
+### Preparation
+
+```{r}
+ufc_model <- readRDS("ufc_model.rds")
+labels <- ufc_model$Winner
+predictors <- ufc_model[, !names(ufc_model) %in% c("Winner", "R_fighter", "B_fighter")]
+
+keep <- complete.cases(predictors) & labels %in% c("Red", "Blue")
+predictors <- droplevels(predictors[keep, ])
+labels <- droplevels(labels[keep])
+
+x <- model.matrix(~ . - 1, data = predictors)
+
+minmax <- function(v) {
+  r <- range(v)
+  if (r[2] == r[1]) return(rep(0, length(v)))
+  (v - r[1]) / (r[2] - r[1])
+}
+x_scaled <- as.data.frame(apply(x, 2, minmax))
+
+rf_data <- data.frame(x_scaled, Winner = labels)
+
+# Split dataset into training and test 
+set.seed(12345)
+train_rows <- sample(1:nrow(rf_data), 0.7 * nrow(rf_data))
+rf_train <- rf_data[train_rows, ]
+rf_test  <- rf_data[-train_rows, ]
+```
+
+### Build Model
+
+```{r}
+library(randomForest)
+rf_model <- randomForest(Winner ~ ., data = rf_train, ntree = 500, importance = TRUE)
+rf_model
+
+rf_pred <- predict(rf_model, rf_test[, names(rf_test) != "Winner"]) # Make prediction from model
+```
+
+### Evaluate Model
+
+```{r}
+library(caret)
+all_levels <- c("Red", "Blue")
+confusionMatrix(factor(rf_pred, levels = all_levels),
+                factor(rf_test$Winner, levels = all_levels),
+                positive = "Red")
+
+varImpPlot(rf_model, n.var = 15) # Viewing the most important independent variables
+```
+
+R_odds and B_odds seem to be the two most consequential predictors.

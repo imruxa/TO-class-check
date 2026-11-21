@@ -1,39 +1,51 @@
 ---
-title: "UFCSVM"
-output: html_document
+title: "UFC Predictions"
+output:
+  html_document:
+    theme: united
+    toc: true
+    toc_float: true
+date: "2026-11-20"
 ---
 
+# UFC Fight Predictions
+
 ## SVM Model
+
+### Preparation
 ```{r}
-library(neuralnet)
+library(kernlab)
 library(caret)
-library(ggplot2)
-library(pROC)
-library(knitr)
 
-# Read dataset
 ufc_model <- readRDS("ufc_model.rds")
+labels <- ufc_model$Winner
+predictors <- ufc_model[, !names(ufc_model) %in% c("Winner", "R_fighter", "B_fighter")]
 
-# Keep only the columns we need and remove NAs
-ufc_clean <- na.omit(ufc_model[, c("Winner", "R_age", "B_age", "R_Height_cms", "B_Height_cms","R_Reach_cms", "B_Reach_cms", "R_avg_SIG_STR_landed", "B_avg_SIG_STR_landed", "R_avg_TD_landed", "B_avg_TD_landed", "R_avg_SUB_ATT", "B_avg_SUB_ATT", "R_wins", "B_wins", "R_odds", "B_odds", "r_dec_odds", "b_dec_odds", "r_sub_odds", "b_sub_odds", "r_ko_odds", "b_ko_odds", "B_current_lose_streak", "B_current_win_streak", "R_current_lose_streak", "R_current_win_streak", "R_longest_win_streak", "B_longest_win_streak")])
+# Same filtering as the KNN file, so both models use the same fights
+keep <- complete.cases(predictors) & labels %in% c("Red", "Blue")
+predictors <- droplevels(predictors[keep, ])
+labels <- droplevels(labels[keep])
 
-# Normalize predictors (0 to 1)
-normalize <- function(x) {
-  return((x - min(x)) / (max(x) - min(x)))
+x <- model.matrix(~ . - 1, data = predictors)
+
+minmax <- function(v) {
+  r <- range(v)
+  if (r[2] == r[1]) return(rep(0, length(v)))
+  (v - r[1]) / (r[2] - r[1])
 }
+x_scaled <- as.data.frame(apply(x, 2, minmax))
 
-ufc_norm <- as.data.frame(lapply(ufc_clean[, -1], normalize))
-ufc_norm$Winner <- ifelse(ufc_clean$Winner == "Red", 1, 0)
+# Add the outcome back as a factor
+svm_data <- data.frame(x_scaled, Winner = labels)
 
-# Split the dataset
-ratio <- 0.7
+# Same split as the KNN file
 set.seed(12345)
-train_rows <- sample(1:nrow(ufc_norm), ratio * nrow(ufc_norm))
-ufc_train <- ufc_norm[train_rows, ]
-ufc_test  <- ufc_norm[-train_rows, ]
+train_rows <- sample(1:nrow(svm_data), 0.7 * nrow(svm_data))
+ufc_train <- svm_data[train_rows, ]
+ufc_test  <- svm_data[-train_rows, ]
 ```
 
-
+### Build Model
 ```{r}
 #ufc_test <- as.factor(ufc_test)
 #ufc_train <- as.factor(ufc_train)
@@ -41,13 +53,15 @@ ufc_test  <- ufc_norm[-train_rows, ]
 library(kernlab)
 svm.model <- ksvm(Winner ~ ., data = ufc_train, kernel = "vanilladot")
 svm.model
+
+# Predict using only predictor columns
+svm.pred <- predict(svm.model, ufc_test[, names(ufc_test) != "Winner"])
 ```
 
-
+### Evaluate Model
 ```{r}
-svm.pred <- predict(svm.model, ufc_test)
-
-library(caret)
-#confusionMatrix(svm.pred, ufc_test$Winner, positive = "1")
-```
+all_levels <- c("Red", "Blue")
+confusionMatrix(factor(svm.pred, levels = all_levels),
+                factor(ufc_test$Winner, levels = all_levels),
+                positive = "Red")
 ```

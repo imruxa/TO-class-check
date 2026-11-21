@@ -1,8 +1,12 @@
 ---
-title: "UFCANN"
+title: "UFC Predictions"
 author: "Will Friedman"
 date: "2026-11-20"
-output: html_document
+output:
+  html_document:
+    theme: united
+    toc: true
+    toc_float: true
 ---
 
 ```{r setup, include=FALSE}
